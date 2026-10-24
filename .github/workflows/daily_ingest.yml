@@ -1,0 +1,52 @@
+name: Daily ADS-B ingest
+
+on:
+  schedule:
+    - cron: "17 3 * * *"     # every day at 03:17 UTC (08:47 IST)
+  workflow_dispatch:           # also lets you press "Run workflow" by hand
+
+permissions:
+  contents: write              # needed to commit results and upload release files
+
+concurrency: ingest            # never run two at once
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: pip install -r requirements.txt
+
+      - name: Download airport list (OurAirports)
+        run: curl -sSL -o data/airports_world.csv https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
+
+      - name: Process new days
+        run: python scripts/run_daily.py
+
+      - name: Upload points files to a monthly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in out/india_*.parquet; do
+            [ -e "$f" ] || continue
+            month=$(basename "$f" | cut -c7-13)          # india_2026-10-23.parquet -> 2026-10
+            tag="points-$month"
+            gh release view "$tag" >/dev/null 2>&1 || \
+              gh release create "$tag" --title "ADS-B points $month" \
+                --notes "Indian-registered aircraft over India, filtered from adsb.lol globe_history (ODbL)."
+            gh release upload "$tag" "$f" --clobber
+          done
+
+      - name: Commit new results
+        run: |
+          git config user.name "routegap-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/legs data/coverage_log.csv
+          git diff --cached --quiet || (git commit -m "Add flights for new days" && git push)

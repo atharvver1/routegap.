@@ -1,0 +1,8 @@
+# big or temporary files - never commit these
+work/
+out/
+data/airports_world.csv
+*.parquet
+*.tar.*
+__pycache__/
+.venv/
