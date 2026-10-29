@@ -35,7 +35,8 @@ st.write("Open data on Indian domestic flights, built from ADS-B signals.")
 st.caption(f"Source: adsb.lol (ODbL) · {days} days, {first_day} to {last_day} · "
            f"{len(df)} flights with both ends known")
 
-tab_overview, tab_map, tab_find = st.tabs(["Overview", "Route map", "Find a flight"])
+tab_overview, tab_map, tab_find, tab_plane = st.tabs(
+    ["Overview", "Route map", "Find a flight", "Aircraft day"])
 
 # =====================================================================
 with tab_overview:
@@ -207,3 +208,89 @@ with tab_find:
             st.caption("Times are when the aircraft left or reached the runway, not the gate. "
                        "'complete inferred' means one end was estimated from the climb or descent. "
                        "'?' or 'not seen' means no receiver saw that end of the flight.")
+
+# =====================================================================
+with tab_plane:
+
+    st.header("Aircraft day")
+    st.write("Pick one plane and one day, and see everything it flew.")
+
+    # suggest the busiest planes so people have something to try
+    busiest = everything["reg"].value_counts().head(5).index
+    reg = st.text_input("Aircraft registration", placeholder="e.g. " + ", ".join(busiest))
+    reg = reg.replace(" ", "").upper()
+
+    if reg:
+        plane = everything[everything["reg"].fillna("").str.upper() == reg]
+
+        if plane.empty:
+            st.warning("We haven't seen this aircraft. Check the registration, e.g. VT-IQG.")
+        else:
+            # which days did we see it?
+            plane_days = sorted(plane["day"].dt.date.unique(), reverse=True)
+            day = st.selectbox("Day", plane_days, format_func=lambda d: d.strftime("%a %d %b %Y"))
+            legs = plane[plane["day"].dt.date == day].copy()
+
+            # put the flights in time order (use takeoff time, or landing time if takeoff wasn't seen)
+            legs["sort_time"] = legs["wheels_off_utc"].fillna(legs["touchdown_utc"])
+            timed = legs[legs["sort_time"].notna()].sort_values("sort_time")
+            untimed = legs[legs["sort_time"].isna()]
+
+            st.subheader(f"{reg} · {plane['type'].iloc[0]} · {plane['airline'].iloc[0]}")
+
+            # the chain: COK → PNQ → ATQ
+            stops = []
+            for _, leg in timed.iterrows():
+                origin = leg["origin"] if pd.notna(leg["origin"]) else "?"
+                dest = leg["dest"] if pd.notna(leg["dest"]) else "?"
+                if not stops or stops[-1] != origin:
+                    stops.append(origin)
+                if dest == origin:
+                    stops.append("?")      # it went somewhere and came back, but we missed the stop
+                stops.append(dest)
+            if stops:
+                st.markdown("### " + " → ".join(stops))
+
+            # hours in the air: only for flights where we saw both takeoff and landing
+            both = timed[timed["wheels_off_utc"].notna() & timed["touchdown_utc"].notna()
+                         & (timed["origin"] != timed["dest"])]
+            air_minutes = ((both["touchdown_utc"] - both["wheels_off_utc"]).dt.total_seconds() / 60).sum()
+
+            # turnaround: time on the ground between landing and the next takeoff at the same airport
+            turns = []
+            rows = list(timed.itertuples())
+            for before, after in zip(rows, rows[1:]):
+                same_airport = before.dest == after.origin and pd.notna(before.dest)
+                if same_airport and pd.notna(before.touchdown_utc) and pd.notna(after.wheels_off_utc):
+                    gap = (after.wheels_off_utc - before.touchdown_utc).total_seconds() / 60
+                    if 0 < gap < 6 * 60:
+                        turns.append(gap)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Flights seen", len(legs))
+            c2.metric("Hours in the air", f"{air_minutes / 60:.1f}",
+                      help=f"Only counts the {len(both)} flight(s) where we saw both takeoff and landing.")
+            c3.metric("Average turnaround",
+                      f"{sum(turns) / len(turns):.0f} min" if turns else "n/a",
+                      help="Runway landing to next runway takeoff at the same airport.")
+
+            table = pd.DataFrame({
+                "Flight": timed["flight_no"],
+                "From": timed["origin"].fillna("?"),
+                "To": timed["dest"].fillna("?"),
+                "Took off (IST)": timed["wheels_off_utc"].dt.strftime("%H:%M"),
+                "Landed (IST)": timed["touchdown_utc"].dt.strftime("%H:%M"),
+                "Minutes in air": ((timed["touchdown_utc"] - timed["wheels_off_utc"])
+                                   .dt.total_seconds() / 60).round().astype("Int64").astype(str),
+                "Tracking": timed["grade"].str.replace("_", " "),
+            }).fillna("not seen")
+            table["Minutes in air"] = table["Minutes in air"].replace("<NA>", "not seen")
+            same = timed["origin"] == timed["dest"]
+            table.loc[same.values, "Minutes in air"] = "missed a stop"
+            st.dataframe(table, hide_index=True)
+
+            if len(untimed) > 0:
+                st.info(f"Plus {len(untimed)} flight(s) seen only while cruising, so we don't know "
+                        "where or when they started and ended.")
+            st.caption("A 'day' is one adsb.lol file: midnight to midnight UTC (5:30 AM to 5:30 AM IST). "
+                       "Times are runway times, not gate times.")
