@@ -35,7 +35,7 @@ st.write("Open data on Indian domestic flights, built from ADS-B signals.")
 st.caption(f"Source: adsb.lol (ODbL) · {days} days, {first_day} to {last_day} · "
            f"{len(df)} flights with both ends known")
 
-tab_overview, tab_find = st.tabs(["Overview", "Find a flight"])
+tab_overview, tab_map, tab_find = st.tabs(["Overview", "Route map", "Find a flight"])
 
 # =====================================================================
 with tab_overview:
@@ -82,6 +82,84 @@ with tab_overview:
         "don't appear here. That doesn't mean they aren't flying."
     )
     st.caption(f"Airports seen so far: {df['origin'].nunique()}")
+
+# =====================================================================
+with tab_map:
+
+    st.header("Route map")
+    st.write("Every route we saw. Thicker lines = more flights. "
+             "Dots show how well we can see each airport.")
+
+    airport_info = pd.read_csv("data/airports_india.csv")
+    place = airport_info.set_index("iata")
+
+    # --- the routes: count flights, then add both airports' positions ---
+    lines = df.groupby(["origin", "dest"]).size().reset_index(name="flights")
+    lines = lines[lines["origin"].isin(place.index) & lines["dest"].isin(place.index)]
+    lines["from_lon"] = lines["origin"].map(place["lon"])
+    lines["from_lat"] = lines["origin"].map(place["lat"])
+    lines["to_lon"] = lines["dest"].map(place["lon"])
+    lines["to_lat"] = lines["dest"].map(place["lat"])
+    lines["width"] = lines["flights"] / lines["flights"].max() * 8 + 0.5
+
+    min_flights = st.slider("Only show routes with at least this many flights", 1, 100, 10)
+    lines = lines[lines["flights"] >= min_flights]
+
+    # --- the airports: how was each end of each flight found there? ---
+    ends = pd.concat([
+        everything[["origin", "origin_method"]].set_axis(["iata", "method"], axis=1),
+        everything[["dest", "dest_method"]].set_axis(["iata", "method"], axis=1),
+    ]).dropna()
+    seen = ends[ends["method"] == "seen"].groupby("iata").size()
+    total = ends.groupby("iata").size()
+
+    airport_info["flights"] = airport_info["iata"].map(total).fillna(0).astype(int)
+    airport_info["seen_pct"] = (airport_info["iata"].map(seen).fillna(0)
+                                / airport_info["flights"].clip(lower=1) * 100).round()
+
+    def coverage(row):
+        if row["flights"] == 0:
+            return "No data"
+        if row["seen_pct"] >= 70:
+            return "Good"
+        return "Partial"
+
+    airport_info["coverage"] = airport_info.apply(coverage, axis=1)
+    colours = {"Good": [34, 170, 90], "Partial": [240, 170, 30], "No data": [150, 150, 150]}
+    airport_info["colour"] = airport_info["coverage"].map(colours)
+
+    import pydeck as pdk
+
+    route_layer = pdk.Layer(
+        "LineLayer", lines,
+        get_source_position=["from_lon", "from_lat"],
+        get_target_position=["to_lon", "to_lat"],
+        get_width="width", get_color=[60, 120, 220, 140], pickable=True,
+    )
+    airport_layer = pdk.Layer(
+        "ScatterplotLayer", airport_info,
+        get_position=["lon", "lat"], get_fill_color="colour",
+        get_radius=18000, pickable=True,
+    )
+    st.pydeck_chart(pdk.Deck(
+        map_style="light",
+        layers=[route_layer, airport_layer],
+        initial_view_state=pdk.ViewState(latitude=22, longitude=80, zoom=3.8),
+        tooltip={"text": "{origin}-{dest}: {flights} flights\n{iata} {city}: {coverage}"},
+    ))
+
+    good = (airport_info["coverage"] == "Good").sum()
+    partial = (airport_info["coverage"] == "Partial").sum()
+    none = (airport_info["coverage"] == "No data").sum()
+    st.write(f"🟢 **Good** ({good}): takeoffs and landings seen directly  ·  "
+             f"🟠 **Partial** ({partial}): mostly estimated from climb/descent  ·  "
+             f"⚪ **No data** ({none}): scheduled airport, no flights seen yet")
+    st.caption(f"{len(lines)} routes shown. Airports: OurAirports list of {len(airport_info)} "
+               "Indian airports with scheduled service.")
+
+    with st.expander("Airports with no data"):
+        st.dataframe(airport_info[airport_info["coverage"] == "No data"][["iata", "name", "city"]],
+                     hide_index=True)
 
 # =====================================================================
 with tab_find:
