@@ -1,0 +1,46 @@
+name: Daily schedule capture
+
+on:
+  schedule:
+    - cron: "37 0 * * *"     # every day at 00:37 UTC (06:07 IST), captures yesterday
+  workflow_dispatch:           # "Run workflow" button
+    inputs:
+      day:
+        description: "Date to capture (YYYY-MM-DD). Leave empty for yesterday."
+        required: false
+
+permissions:
+  contents: write
+
+concurrency: repo-write        # never push at the same time as another job
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: pip install pandas
+
+      - name: Capture yesterday's departures
+        env:
+          AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
+          AERODATABOX_HOST: ${{ vars.AERODATABOX_HOST }}
+          AIRPORTS: ${{ vars.AIRPORTS }}
+          DAY: ${{ github.event.inputs.day }}
+        run: python scripts/capture_schedules.py
+
+      - name: Commit new schedules
+        run: |
+          git config user.name "routegap-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/schedules 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "Add schedules"
+          git pull --rebase && git push

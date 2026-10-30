@@ -8,7 +8,7 @@ on:
 permissions:
   contents: write              # needed to commit results and upload release files
 
-concurrency: ingest            # never run two at once
+concurrency: repo-write        # never push at the same time as another job
 
 jobs:
   ingest:
@@ -49,4 +49,4 @@ jobs:
           git config user.name "routegap-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/legs data/coverage_log.csv
-          git diff --cached --quiet || (git commit -m "Add flights for new days" && git push)
+          git diff --cached --quiet || (git commit -m "Add flights for new days" && git pull --rebase && git push)

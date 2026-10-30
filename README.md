@@ -14,6 +14,16 @@ Every day at 08:47 IST, GitHub Actions (`.github/workflows/daily_ingest.yml`):
 
 If a day is missed, the next run catches up (up to 4 days per run).
 
+## Schedules (AeroDataBox)
+
+`.github/workflows/daily_schedules.yml` runs every day at 06:07 IST and saves yesterday's
+departure boards (scheduled + actual times) for the 10 DGCA airports to
+`data/schedules/YYYY-MM/schedules_YYYY-MM-DD.csv`. That's 20 API calls a day.
+
+To switch it on: GitHub → **Settings → Secrets and variables → Actions → New repository secret**,
+name `AERODATABOX_KEY`, value = your RapidAPI key. Optional **Variables**: `AIRPORTS`
+(e.g. `DEL,BOM,BLR`) and `AERODATABOX_HOST`. Without the key the job does nothing.
+
 ## Setup (one time)
 
 1. Create a **public** GitHub repo and push this folder to it. Public repos get GitHub Actions for free.
@@ -29,6 +39,7 @@ To start from a different day, edit `START_DATE` in `scripts/run_daily.py`.
 | `scripts/filter_day.py` | One adsb.lol day → Indian aircraft points over India (Parquet) |
 | `scripts/build_legs.py` | Points → flights: origin, destination, times, airline, grade |
 | `scripts/run_daily.py` | Runs both for every new day; used by GitHub Actions |
+| `scripts/capture_schedules.py` | Yesterday's departure boards from AeroDataBox |
 
 Run by hand:
 
