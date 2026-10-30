@@ -70,7 +70,7 @@ with tab_overview:
     st.bar_chart(share)
 
     if len(share) == 1:
-        st.warning("Only one airline flies this route: a competition gap.")
+        st.info("Only one airline seen on this route so far.")
     if len(on_route) < 60:
         st.info(f"Only {len(on_route)} flights seen. Treat these numbers as rough.")
 
@@ -87,9 +87,10 @@ with tab_overview:
 # =====================================================================
 with tab_gaps:
 
-    st.header("Route gaps: where passengers have no choice")
-    st.write("Routes where one airline runs all (or nearly all) of the flights we saw. "
-             "Busiest first, because those are the gaps that affect the most people.")
+    st.header("Route gaps")
+    st.write("Routes mostly served by a single airline. More airlines on a route usually "
+             "means more choice for travellers, so these are spots where there could be room "
+             "for another option. Busiest routes first.")
 
     # for every route: total flights, and how many each airline flew
     per_airline = df.groupby(["route", "airline"]).size().reset_index(name="flights")
@@ -107,10 +108,10 @@ with tab_gaps:
     gaps["Flights per day"] = (gaps["Flights seen"] / days).round(1)
 
     c1, c2 = st.columns(2)
-    kind = c1.radio("Show", ["Only one airline", "One airline has 80%+"])
+    kind = c1.radio("Show", ["Served by one airline", "Mostly one airline (80%+)"])
     min_flights = c2.number_input("At least this many flights", min_value=1, value=days)
 
-    if kind == "Only one airline":
+    if kind == "Served by one airline":
         shown = gaps[gaps["Airlines seen"] == 1]
     else:
         shown = gaps[gaps["Top airline's share (%)"] >= 80]
@@ -121,7 +122,7 @@ with tab_gaps:
 
     if not shown.empty:
         st.bar_chart(shown["Top airline"].value_counts())
-        st.caption("Which airlines hold these routes alone.")
+        st.caption("Which airlines serve these routes.")
 
     st.info("'Seen' matters: if an airport has weak coverage, we may miss another airline's "
             "flights there. Check the Route map tab for each airport's coverage before "
