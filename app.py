@@ -101,8 +101,8 @@ with tab_gaps:
     gaps = pd.DataFrame({
         "Route": totals.index,
         "Flights seen": totals.values,
-        "Top airline": top.loc[totals.index, "airline"].values,
-        "Top airline's share (%)": (top.loc[totals.index, "flights"].values / totals.values * 100).round(),
+        "Main airline": top.loc[totals.index, "airline"].values,
+        "Main airline's share (%)": (top.loc[totals.index, "flights"].values / totals.values * 100).round(),
         "Airlines seen": per_airline.groupby("route").size().loc[totals.index].values,
     })
     gaps["Flights per day"] = (gaps["Flights seen"] / days).round(1)
@@ -114,19 +114,18 @@ with tab_gaps:
     if kind == "Served by one airline":
         shown = gaps[gaps["Airlines seen"] == 1]
     else:
-        shown = gaps[gaps["Top airline's share (%)"] >= 80]
+        shown = gaps[gaps["Main airline's share (%)"] >= 80]
     shown = shown[shown["Flights seen"] >= min_flights].sort_values("Flights seen", ascending=False)
 
     st.write(f"**{len(shown)} routes** match.")
     st.dataframe(shown, hide_index=True)
 
     if not shown.empty:
-        st.bar_chart(shown["Top airline"].value_counts())
+        st.bar_chart(shown["Main airline"].value_counts())
         st.caption("Which airlines serve these routes.")
 
-    st.info("'Seen' matters: if an airport has weak coverage, we may miss another airline's "
-            "flights there. Check the Route map tab for each airport's coverage before "
-            "calling a route a true monopoly.")
+    st.info("This is based on the flights we could see. At airports with weaker coverage we "
+            "might miss some flights, so check the Route map tab for each airport's coverage.")
     st.caption(f"Default minimum = {days} flights, about one a day over the {days} days of data.")
 
 # =====================================================================
