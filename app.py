@@ -35,8 +35,8 @@ st.write("Open data on Indian domestic flights, built from ADS-B signals.")
 st.caption(f"Source: adsb.lol (ODbL) · {days} days, {first_day} to {last_day} · "
            f"{len(df)} flights with both ends known")
 
-tab_overview, tab_map, tab_find, tab_plane = st.tabs(
-    ["Overview", "Route map", "Find a flight", "Aircraft day"])
+tab_overview, tab_gaps, tab_map, tab_find, tab_plane = st.tabs(
+    ["Overview", "Route gaps", "Route map", "Find a flight", "Aircraft day"])
 
 # =====================================================================
 with tab_overview:
@@ -83,6 +83,50 @@ with tab_overview:
         "don't appear here. That doesn't mean they aren't flying."
     )
     st.caption(f"Airports seen so far: {df['origin'].nunique()}")
+
+# =====================================================================
+with tab_gaps:
+
+    st.header("Route gaps: where passengers have no choice")
+    st.write("Routes where one airline runs all (or nearly all) of the flights we saw. "
+             "Busiest first, because those are the gaps that affect the most people.")
+
+    # for every route: total flights, and how many each airline flew
+    per_airline = df.groupby(["route", "airline"]).size().reset_index(name="flights")
+    totals = per_airline.groupby("route")["flights"].sum()
+    top = per_airline.sort_values("flights", ascending=False).drop_duplicates("route")
+    top = top.set_index("route")
+
+    gaps = pd.DataFrame({
+        "Route": totals.index,
+        "Flights seen": totals.values,
+        "Top airline": top.loc[totals.index, "airline"].values,
+        "Top airline's share (%)": (top.loc[totals.index, "flights"].values / totals.values * 100).round(),
+        "Airlines seen": per_airline.groupby("route").size().loc[totals.index].values,
+    })
+    gaps["Flights per day"] = (gaps["Flights seen"] / days).round(1)
+
+    c1, c2 = st.columns(2)
+    kind = c1.radio("Show", ["Only one airline", "One airline has 80%+"])
+    min_flights = c2.number_input("At least this many flights", min_value=1, value=days)
+
+    if kind == "Only one airline":
+        shown = gaps[gaps["Airlines seen"] == 1]
+    else:
+        shown = gaps[gaps["Top airline's share (%)"] >= 80]
+    shown = shown[shown["Flights seen"] >= min_flights].sort_values("Flights seen", ascending=False)
+
+    st.write(f"**{len(shown)} routes** match.")
+    st.dataframe(shown, hide_index=True)
+
+    if not shown.empty:
+        st.bar_chart(shown["Top airline"].value_counts())
+        st.caption("Which airlines hold these routes alone.")
+
+    st.info("'Seen' matters: if an airport has weak coverage, we may miss another airline's "
+            "flights there. Check the Route map tab for each airport's coverage before "
+            "calling a route a true monopoly.")
+    st.caption(f"Default minimum = {days} flights, about one a day over the {days} days of data.")
 
 # =====================================================================
 with tab_map:
